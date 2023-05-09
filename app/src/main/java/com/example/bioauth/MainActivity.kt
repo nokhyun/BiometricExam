@@ -26,16 +26,21 @@ import androidx.navigation.ui.AppBarConfiguration
 import androidx.navigation.ui.navigateUp
 import com.example.bioauth.databinding.ActivityMainBinding
 import com.google.android.material.snackbar.Snackbar
+import java.security.InvalidKeyException
+import java.security.KeyStore
 import java.util.concurrent.Executor
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
+import javax.crypto.SecretKey
 
 class MainActivity : AppCompatActivity() {
 
     private lateinit var appBarConfiguration: AppBarConfiguration
     private lateinit var binding: ActivityMainBinding
 
-    private val cipher = getCipher()
+    private var isKeyValid = true
+
+    private val cipher: Cipher = getCipher()
     private val keyGenParameterSpec = KeyGenParameterSpec.Builder(
         "test",
         KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT
@@ -59,7 +64,8 @@ class MainActivity : AppCompatActivity() {
 //        appBarConfiguration = AppBarConfiguration(navController.graph)
 //        setupActionBarWithNavController(navController, appBarConfiguration)
 
-        cipher.init(Cipher.ENCRYPT_MODE, keyGenerator.generateKey())
+//        cipher.init(Cipher.ENCRYPT_MODE, keyGenerator.generateKey())
+
         binding.fab.setOnClickListener { view ->
             Snackbar.make(view, "Replace with your own action", Snackbar.LENGTH_LONG)
                 .setAnchorView(R.id.fab)
@@ -223,11 +229,22 @@ class MainActivity : AppCompatActivity() {
             .build()
 
         findViewById<Button>(R.id.biometric_login).setOnClickListener {
-            biometricPrompt.authenticate(
-                promptInfo, BiometricPrompt.CryptoObject(
-                    cipher
+            // TODO fingerprint 는 따로 필요 시 작업.
+            try {
+                val secretKey = getSecretKey()
+                Log.e(this.javaClass.simpleName, "secretKey: $secretKey")
+                cipher.init(Cipher.ENCRYPT_MODE, secretKey)
+            } catch (e: InvalidKeyException) {
+                e.printStackTrace()
+                Log.e(this.javaClass.simpleName, "Exception")
+                isKeyValid = false
+            }
+
+            if (isKeyValid) {
+                biometricPrompt.authenticate(
+                    promptInfo, BiometricPrompt.CryptoObject(cipher)
                 )
-            )
+            }
         }
     }
 
@@ -240,14 +257,42 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun generateSecretKey(keyGenParameterSpec: KeyGenParameterSpec): KeyGenerator {
+//        val keyGenerator = KeyGenerator.getInstance(
+//            KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore"
+//        )
+//        keyGenerator.init(keyGenParameterSpec)
+//        keyGenerator.generateKey()
+//        return keyGenerator
+
         val keyGenerator = KeyGenerator.getInstance(
             KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore"
         )
-        keyGenerator.init(keyGenParameterSpec)
+        keyGenerator.init(
+            KeyGenParameterSpec.Builder(
+                "test", // Your key name
+                KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT
+            )
+                .setBlockModes(KeyProperties.BLOCK_MODE_CBC)
+                .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_PKCS7)
+                .setUserAuthenticationRequired(true)
+                // Invalidate the keys if the user has registered a new biometric
+                // credential, such as a new fingerprint. Can call this method only
+                // on Android 7.0 (API level 24) or higher. The variable
+                // "invalidatedByBiometricEnrollment" is true by default.
+                .setInvalidatedByBiometricEnrollment(true)
+                .build()
+        )
         keyGenerator.generateKey()
         return keyGenerator
     }
 
+    private fun getSecretKey(): SecretKey {
+        val keyStore = KeyStore.getInstance("AndroidKeyStore")
+
+        // Before the keystore can be accessed, it must be loaded.
+        keyStore.load(null)
+        return keyStore.getKey("test", null) as SecretKey
+    }
 
     companion object {
         private val TAG = MainActivity::class.simpleName
