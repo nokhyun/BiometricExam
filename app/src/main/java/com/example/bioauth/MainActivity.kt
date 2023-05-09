@@ -13,6 +13,7 @@ import android.view.MenuItem
 import android.widget.Button
 import android.widget.TextView
 import android.widget.Toast
+import androidx.annotation.RequiresApi
 import androidx.appcompat.app.AppCompatActivity
 import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricManager.Authenticators.BIOMETRIC_STRONG
@@ -28,12 +29,22 @@ import com.google.android.material.snackbar.Snackbar
 import java.util.concurrent.Executor
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
-import javax.security.auth.login.LoginException
 
 class MainActivity : AppCompatActivity() {
 
     private lateinit var appBarConfiguration: AppBarConfiguration
     private lateinit var binding: ActivityMainBinding
+
+    private val cipher = getCipher()
+    private val keyGenParameterSpec = KeyGenParameterSpec.Builder(
+        "test",
+        KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT
+    ).setBlockModes(KeyProperties.BLOCK_MODE_CBC)
+        .setUserAuthenticationRequired(true)
+        .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_PKCS7)
+        .setInvalidatedByBiometricEnrollment(true)
+        .build()
+    private val keyGenerator = generateSecretKey(keyGenParameterSpec)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         WindowCompat.setDecorFitsSystemWindows(window, false)
@@ -48,6 +59,7 @@ class MainActivity : AppCompatActivity() {
 //        appBarConfiguration = AppBarConfiguration(navController.graph)
 //        setupActionBarWithNavController(navController, appBarConfiguration)
 
+        cipher.init(Cipher.ENCRYPT_MODE, keyGenerator.generateKey())
         binding.fab.setOnClickListener { view ->
             Snackbar.make(view, "Replace with your own action", Snackbar.LENGTH_LONG)
                 .setAnchorView(R.id.fab)
@@ -97,19 +109,6 @@ class MainActivity : AppCompatActivity() {
                 }
             }
 
-            val cipher = getCipher()
-
-            val keyGenParameterSpec = KeyGenParameterSpec.Builder(
-                "test",
-                KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT
-            ).setBlockModes(KeyProperties.BLOCK_MODE_CBC)
-                .setUserAuthenticationRequired(true)
-                .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_PKCS7)
-                .setInvalidatedByBiometricEnrollment(true)
-                .build()
-            val keyGenerator = generateSecretKey(keyGenParameterSpec)
-            cipher.init(Cipher.ENCRYPT_MODE, keyGenerator.generateKey())
-
             val listener = object : FingerprintManager.AuthenticationCallback() {
                 override fun onAuthenticationSucceeded(result: FingerprintManager.AuthenticationResult?) {
                     super.onAuthenticationSucceeded(result)
@@ -142,12 +141,12 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    @RequiresApi(value = Build.VERSION_CODES.P)
     private fun bioAuth() {
         Log.e(TAG, "bioAuth")
         val biometricManager = BiometricManager.from(this)
         when (biometricManager.canAuthenticate(BIOMETRIC_STRONG or DEVICE_CREDENTIAL)) {
             BiometricManager.BIOMETRIC_SUCCESS -> {
-                Toast.makeText(this@MainActivity, "Success", Toast.LENGTH_SHORT).show()
                 Log.e("MY_APP_TAG", "App can authenticate using biometrics.")
             }
 
@@ -171,6 +170,10 @@ class MainActivity : AppCompatActivity() {
                     )
                 }
                 startActivityForResult(enrollIntent, 1001)
+            }
+
+            else -> {
+                Log.e("MY_APP_TAG", "BIOMETRIC_ERROR_UNKNOWN")
             }
         }
 
@@ -211,6 +214,8 @@ class MainActivity : AppCompatActivity() {
             }
         })
 
+
+
         promptInfo = BiometricPrompt.PromptInfo.Builder()
             .setTitle("Biometric login for my app")
             .setSubtitle("Log in using your biometric credential")
@@ -218,7 +223,11 @@ class MainActivity : AppCompatActivity() {
             .build()
 
         findViewById<Button>(R.id.biometric_login).setOnClickListener {
-            biometricPrompt.authenticate(promptInfo)
+            biometricPrompt.authenticate(
+                promptInfo, BiometricPrompt.CryptoObject(
+                    cipher
+                )
+            )
         }
     }
 
